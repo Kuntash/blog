@@ -1,0 +1,493 @@
+---
+title: Make your product collaborative with Convex
+date: '2025-05-17'
+lastmod: '2025-05-17'
+tags: ['convex', 'react', 'tailwindcss', typescript]
+draft: false
+authors: ['default']
+summary: Learn how to build a real-time collaborative text editor using Convex, React, and Tailwind CSS with live user presence and document synchronization.
+---
+
+Hey there, this blog will guide you on how you can turn your product into a collaborative environment using Convex. We will build a simple text editor as our product and integrate realtime collaboration into it.
+
+## Repository Setup:
+
+Let us start by scaffolding a new ( Typescript + Next.js ) repo. We will also use Tailwind CSS and Shadcn to easily build the UI.
+
+```bash
+npx create-next-app@latest
+```
+
+Next, lets integrate Shadcn by running the following command:
+
+```
+npx shadcn-ui@latest init
+```
+
+## Lets build the UI:
+
+Go to **page.tsx** and remove the boiler plate UI. We will make the container fit the screen and give it a light slate background to give a good contrast with the text editor which will be white.
+Here is how **page.tsx** should look like:
+
+```tsx
+import { TextEditor } from '@/components/editor'
+
+export default function Home() {
+  return (
+    <main className="flex min-h-screen justify-center bg-slate-100">
+      <TextEditor />
+    </main>
+  )
+}
+```
+
+Next we will build the **TextEditor** component using the `react-quill` package. Lets start by installing it.
+
+```
+npm i react-quill
+```
+
+Lets use the package to render a text editor and create a header to show avatars of users working on it:
+
+```ts
+"use client";
+
+import React, { useState } from "react";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.bubble.css";
+
+export const TextEditor = () => {
+  const [value, setValue] = useState("<p>Write something here</p>");
+  return (
+    <div className="max-w-[800px] w-full flex flex-col gap-y-4 items-center">
+      {/* Container for avatars  */}
+      <div className="bg-white w-full rounded-lg shadow-md p-2 h-10">
+
+      </div>
+      {/* Editor */}
+      <div className="flex-1 bg-white w-full rounded-lg shadow-md overflow-hidden p-4">
+        <ReactQuill
+          value={value}
+          onChange={(changedHTML) => {
+            setValue(changedHTML);
+          }}
+          theme="bubble"
+          className="h-full"
+        />
+      </div>
+    </div>
+  );
+};
+```
+
+We are using bubble theme because the UI feels, we now should have a controlled text editor that looks like this:
+
+![Text editor UI](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/iaoq6u2an6t8jli09cjq.png)
+
+## Integrating with convex:
+
+Let us start, working on integrating convex. Start by creating a new convex account, then create a project. I am calling it **edit-now.**
+
+![Convex dashboard create project modal](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/1677ouqphokof63gp58p.png)
+Now install convex's SDK with `npm install convex`.
+
+After that run `npx convex dev`, this will prompt you to login with your convex credentials, and choose your project. After the authentication is done, it will create a **convex/** folder in your root dir in which you will define your schemas, queries and actions. It will create .env.local file if you don't already have done to configure your dev URL.
+**Note:** the command won't exit since it tracks your changes in the convex/ folder and syncs it with your dashboard in realtime. 
+
+**Provider:** Wrap your app with {'<ConvexProvider />'} as shown below.
+
+```ts
+"use client";
+import { TextEditor } from "@/components/editor";
+import { ConvexProvider, ConvexReactClient } from "convex/react";
+
+const client = new ConvexReactClient(
+  process.env.NEXT_PUBLIC_CONVEX_URL as string
+);
+
+export default function Home() {
+  return (
+    <ConvexProvider client={client}>
+      <main className="min-h-screen flex justify-center bg-slate-100 p-4">
+        <TextEditor />
+      </main>
+    </ConvexProvider>
+  );
+}
+
+```
+
+You can only run queries and mutation inside your **{'<ConvexProvider />'}**
+
+Before working on the Schema, lets dive into how the application will work. 
+
+- **User lands on the website:** We will create a user record in the table with a random name, with a **last_seen_online ** property that we will keep updating every minute.
+- **User types in the editor:** We will update the document with the new content, we will also use debounce so that that document only changes when the user stops typing. 
+- **Start a cron job:** To manage active users, we have a last_seen_online property that changes every minute so whenever a user is not active their property won't get updated and so we will get all the users where the difference between the current time and last_seen_online property is more than **1 minute** and then delete all of them. We will run this function **5 minutes** using a cron job. 
+- **Fetch list of users:** Since we now know that all the record in users table are active users, we will basically fetch all of them to render on the UI.
+
+**Defining Schema:** Create a **schema.ts** file inside the convex folder to create your schemas.
+
+```ts
+import { defineSchema, defineTable } from 'convex/server'
+import { v } from 'convex/values'
+
+export default defineSchema({
+  documents: defineTable({
+    body: v.string(),
+  }),
+  users: defineTable({
+    name: v.string(),
+    last_seen_online: v.number(),
+  }),
+})
+```
+
+We have two tables, **documents** will store multiple document records but in our case we only have one, **users** will store all the active users.
+
+If you now go and check your **Dev** Dashboard you will see all the tables are already defined. Go ahead and create a record in documents which will be the document we will work on. 
+
+Following are the mutations and queries we will create. 
+
+**Mutations:** createUser, updateLastSeenOnline, deleteUsers, updateDocument.
+
+**Queries:** getActiveUsers, getCurrentDocument
+
+If you don't know what **Mutations** or **Queries** mean, **mutations** are basically async functions that modify your data either by creating, deleting or updating while **queries** are async functions that return data from your table. Convex also has **internal functions** which can only be called by mutations or queries for better security.
+We will use a folder structure like -> **{'convex/${function}/${resource}'}** to create our mutations and queries. 
+So **convex/mutations/users.ts** will have these mutations defined:
+
+```ts
+import { v } from 'convex/values'
+import { mutation } from '../_generated/server'
+
+// Create user mutation
+export const createUser = mutation({
+  args: {
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const users = await ctx.db.query('users').collect()
+    if (users.length > 10) return null
+    const newUserId = await ctx.db.insert('users', {
+      name: args.name,
+      last_seen_online: Date.now(),
+    })
+    return newUserId
+  },
+})
+
+// updates last_seen_online property
+export const updateLastSeenOnline = mutation({
+  args: {
+    id: v.id('users'),
+  },
+  handler: async (ctx, args) => {
+    try {
+      await ctx.db.patch(args.id, {
+        last_seen_online: Date.now(),
+      })
+    } catch (error) {
+      console.log(error)
+    }
+  },
+})
+
+// mutation which we will run as a cron job
+export const deleteInActiveUsers = mutation({
+  handler: async (ctx) => {
+    const inActiveUsers = await ctx.db
+      .query('users')
+      .filter((q) => {
+        return q.gte(q.sub(Date.now(), q.field('last_seen_online')), 60000)
+      })
+      .collect()
+    inActiveUsers.forEach((inActiveUser) => {
+      ctx.db.delete(inActiveUser._id)
+    })
+  },
+})
+```
+
+Similarly, in **convex/mutations/documents.ts:**
+
+```ts
+import { v } from 'convex/values'
+import { mutation } from '../_generated/server'
+
+export const updateDocument = mutation({
+  args: {
+    body: v.string(),
+    id: v.id('documents'),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.patch(args.id, {
+      body: args.body,
+    })
+  },
+})
+```
+
+**convex/queries/documents.ts:** Just fetch first document, since we are working on just one currently.
+
+```ts
+import { query } from '../_generated/server'
+
+export const getDocument = query({
+  handler: async (ctx) => {
+    try {
+      const document = (await ctx.db.query('documents').collect())?.[0]
+      return document
+    } catch (error) {}
+    return null
+  },
+})
+```
+
+And **convex/queries/users.ts:**
+
+```ts
+import { query } from '../_generated/server'
+
+export const getActiveUsers = query({
+  handler: async (ctx) => {
+    try {
+      const users = await ctx.db.query('users').collect()
+      return users
+    } catch (error) {
+      console.log(error)
+    }
+  },
+})
+```
+
+Cron to delete inactive users every minute at **convex/crons.ts:**
+
+```ts
+import { cronJobs } from 'convex/server'
+import { api } from './_generated/api'
+
+const crons = cronJobs()
+
+crons.interval(
+  'clear inactive user every minute',
+  { minutes: 1 },
+  api.mutations.users.deleteInActiveUsers
+)
+
+export default crons
+```
+
+**Tip:** You can visit Convex dashboard and in the functions section, all your functions will be there, you can test your functions there to see if they are working correctly. Further more, since convex always syncs, if there is any error in the function definition you can see it in your shell.
+
+## Calling Convex mutations and queries from client:
+
+We will start by creating a user record whenever a user visits the page and updating **last_seen_online** property every minute with setInterval.
+Convex provides client side hooks like **useMutation** and **useQuery** similar to `tanstack-query` for using your functions easily from the client. 
+Since we have wrapped {'<ConvexProvider />'} in page.tsx we cannot use queries and mutations inside there so we will create an {'<App />'} component and call our page wide mutations there.
+
+**page.tsx:**
+
+```ts
+"use client";
+import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { App } from "@/components/app";
+
+const client = new ConvexReactClient(
+  process.env.NEXT_PUBLIC_CONVEX_URL as string
+);
+
+export default function Home() {
+  return (
+    <ConvexProvider client={client}>
+      <App />
+    </ConvexProvider>
+  );
+}
+
+```
+
+**components/app.tsx:**
+
+```ts
+/* ----- Necessary imports ----*/
+
+import React, { useEffect, useState } from "react";
+import { TextEditor } from "./editor";
+import { generateRandomCapitalLetter } from "@/util";
+import { useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { Id } from "../../convex/_generated/dataModel";
+
+export const App = () => {
+  const createUserMutation = useMutation(api.mutations.users.createUser);
+  const updateLastSeenOnlineMutation = useMutation(
+    api.mutations.users.updateLastSeenOnline
+  );
+
+  const [currentUserId, setCurrentUserId] = useState<Id<"users"> | null>(null);
+
+  useEffect(() => {
+    const createUser = async () => {
+      const firstName = generateRandomCapitalLetter();
+      const lastName = generateRandomCapitalLetter();
+      try {
+        const userId = await createUserMutation({
+          name: `${firstName}.${lastName}`,
+        });
+        setCurrentUserId(userId as Id<"users">);
+      } catch (error) {
+        console.log(error);
+      }
+    };
+    createUser();
+    const intervalId = setInterval(() => {
+      if (currentUserId)
+        updateLastSeenOnlineMutation({
+          id: currentUserId,
+        });
+    }, 60000);
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  return (
+    <main className="min-h-screen flex justify-center bg-slate-100 p-4">
+      <TextEditor />
+    </main>
+  );
+};
+
+```
+
+If you now check the **users** table in Convex's dashboard, you should see a record created and if you close the tab, the record will get deleted the next time cron runs.
+
+![User record created image](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/e04ni91dhh57lh2dx2h7.png)
+
+Now, lets fetch the online users and render them as Avatars.
+
+First go the Shadcn's website and install the Avatar component by running:
+
+```
+npx shadcn-ui@latest add avatar
+```
+
+Next, open **editor.tsx** file and inside the **TextEditor** component, write following query logic to fetch users, render them in the container we designed.
+
+Similary, we will fetch the document, set it to react state and create a useEffect dependent on the document, so that whenever document changes we update the local state.
+
+ 
+After that, create a function that accepts HTML and updates our document, now we don't want to update whenever user types, so we will create a useDebounce hook for it. Then call it inside the onChange callback of react quill.
+
+**useDebounce hook:**
+
+```ts
+import { debounce } from 'lodash'
+import { useEffect, useMemo, useRef } from 'react'
+
+export const useDebounce = (callback: any) => {
+  const ref = useRef<any>()
+
+  useEffect(() => {
+    ref.current = callback
+  }, [callback])
+
+  const debouncedCallback = useMemo(() => {
+    const func = () => {
+      ref.current?.()
+    }
+
+    return debounce(func, 1000)
+  }, [])
+
+  return debouncedCallback
+}
+```
+
+**Text Editor:**
+
+```ts
+"use client";
+
+import { useMutation, useQuery } from "convex/react";
+import React, { useEffect, useState } from "react";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.bubble.css";
+import { api } from "../../convex/_generated/api";
+import { Avatar, AvatarFallback } from "./ui/avatar";
+import { useDebounce } from "@/hooks/use-debounce";
+
+export const TextEditor = () => {
+  const activeUsers = useQuery(api.queries.users.getActiveUsers);
+  const updateDocumentMutation = useMutation(
+    api.mutations.documents.updateDocument
+  );
+  const document = useQuery(api.queries.documents.getDocument);
+
+  const [value, setValue] = useState("<p>Write something here</p>");
+
+  const updateChangedHTML = async () => {
+    console.log("Update html");
+    if (document?._id)
+      await updateDocumentMutation({
+        id: document?._id,
+        body: value,
+      });
+  };
+
+  const debouncedUpdateChangedHTML = useDebounce(updateChangedHTML);
+
+  const onChange = (changedHTML: string) => {
+    setValue(changedHTML);
+    debouncedUpdateChangedHTML();
+  };
+
+  useEffect(() => {
+    setValue(document?.body as string);
+  }, [document]);
+
+  return (
+    <div className="max-w-[800px] w-full flex flex-col gap-y-4 items-center">
+      {/* Container for avatars  */}
+      <div className="bg-white w-full rounded-lg shadow-md p-2 flex gap-x-2">
+        {activeUsers?.map((activeUser) => (
+          <Avatar
+            key={activeUser?._id}
+            className="bg-white border border-green-500"
+          >
+            <AvatarFallback className="text-sm">
+              {activeUser?.name}
+            </AvatarFallback>
+          </Avatar>
+        ))}
+      </div>
+      {/* Editor */}
+      <div className="flex-1 bg-white w-full rounded-lg shadow-md overflow-hidden p-4">
+        <ReactQuill
+          value={value}
+          onChange={onChange}
+          theme="bubble"
+          className="h-full"
+        />
+      </div>
+    </div>
+  );
+};
+
+```
+
+## Production Deployment:
+
+If you see the Convex Dashboard carefully, you can change between Dev mode and Prod mode. Till now we have been working with Dev mode but when you deploy you want to be in prod mode therefore you need to make some minor changes.
+
+**Second:** Go to your Prod dashboard's setting, environment variable section and Click one generate production key. Copy this key and set it as **CONVEX_DEPLOY_KEY** env variable in vercel prod.
+
+Here is the link to the github [repo](https://github.com/Kuntash/edit-now)
+
+Thats it, Congrats you now know how to build a realtime collaboration tool. You can extend this project by implementing **live cursors**, **different colors for different users**, **authenticating** etc but the goal of this blog was to introduce you to how I would go about implementing realtime collaborative feature in a product. 
+
+Feel free to leave any comments if you have any doubts or got stuck somewhere.
+
+Follow me at [twitter](https://twitter.com/kuntashTweets/)
+Checkout a project I built for making flatmate finding easier and more fun [bunkr](https://bunkr.in) - the flatmate finder.

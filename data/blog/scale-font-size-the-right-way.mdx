@@ -1,0 +1,53 @@
+---
+title: Scale font size the right way
+date: '2025-05-17'
+lastmod: '2025-05-17'
+tags: ['css', 'responsive', 'tailwindcss']
+draft: false
+authors: ['default']
+summary: Learn to create a scalable typography system using CSS variables and Tailwind CSS, ensuring consistent font sizes and visual hierarchy across your web application.
+---
+
+Hey there, I recently found this simple way of organising font sizes for different html semantics like h1, h2, p etc and also maintain the visual hierarchy among them.
+
+Here is the snippet of it.
+
+```css
+root: {
+  --p: 1rem;
+  --font-scale: 1.2;
+  --h5: calc(var(--p) * var(--font-scale));
+  --h4: calc(var(--h5) * var(--font-scale));
+  --h3: calc(var(--h4) * var(--font-scale));
+  --h2: calc(var(--h3) * var(--font-scale));
+  --h1: calc(var(--h2) * var(--font-scale));
+}
+```
+
+This has mainly two benefits:
+**first:** you always maintain the hierarchy, the magnitude depends on what you set for `--font-scale` variable so tinker with it to get your perfect size.
+**second:** when building responsive web apps with media queries, you only have to apply media query for `--p`, the rest will scale w.r.t to that value.
+
+Configure this in your Tailwind config to use these variables.
+
+```js
+const config = {
+  theme: {
+    extend: {
+      fontSize: {
+        p: 'var(--p)',
+        h5: 'var(--h5)',
+        h4: 'var(--h4)',
+        h3: 'var(--h3)',
+        h2: 'var(--h2)',
+        h1: 'var(--h1)',
+      },
+    },
+  },
+}
+```
+
+I hope this helps bring font size consistency in your next project.
+
+Follow me at [twitter](https://twitter.com/kuntashTweets/)
+Checkout a project I built for making flatmate finding easier and more fun [bunkr](https://bunkr.in) - the flatmate finder.
