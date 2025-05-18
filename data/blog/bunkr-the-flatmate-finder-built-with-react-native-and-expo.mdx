@@ -1,0 +1,35 @@
+---
+title: Bunkr - the flatmate finder, built with React Native and Expo.
+date: '2025-05-18'
+lastmod: '2025-05-18'
+tags: ['react-native', 'expo', 'typescript']
+draft: false
+authors: ['default']
+summary: Bunkr, A React Native/Expo app for finding compatible flatmates in Bangalore, India.
+---
+
+Recently, on 11th May 2025, we took our app **bunkr - the flatmate finder** live. You can download it on both Playstore and Appstore through this link [bunkr](https://linktr.ee/bunkrin). Here, I wanted to share the various tools and libraries we used in it and the experience of taking the project live.
+
+### Expo:
+
+Building with expo was a no brainer especially with a generous free tier for builds and updates, instead of dealing with painful headaches of gems for ios and gradle in android, we can just run build for both the platforms with one command and focus on shipping features and resolving bugs.
+
+Currently we still run build commands and submit manually for each version that we want to send for review, but we will soon be integrating CI / CD builds along with expo access token to make our deployment more streamlined.
+
+### Reanimated gestures and interpolation:
+
+One of the key aspects of using bunkr is the all too familiar **swipe gesture** that lets you like or dislike a potential flatmate. To achieve smooth swiping animations, having the bunch of UI calculations like gestures detection and rotation interpolation being done on the UI thread was a must and reanimated by **software mansion** does the job perfectly. They are currently working on a VSCode extension that gives a much richer experience developing react native apps, so do check that out.
+
+### Tamagui as UI library:
+
+If you want to build a universal app, tamagui is the way to go. its compatible with ios, android and the web while also giving great primitives to build our design system. One problem we faced was the lack of documentation but cursor's @doc feature helped a ton.
+
+### Tanstack Query:
+
+All of our network requests are done using tanstack query and why not? Having a great data fetching library is the corner stone for a good db state management. I am extremely bullish on any software Tanner works on, as there is a guarantee of maintenance, code mods for migration and type safety.
+
+This was my first time submitting apps to play store and app store and I wasn't aware of the amount of changes that would be requested, that too sequentially. For any body else thinking of sending their apps for review, do it as soon you get your core feature built as going through app store review might involve integrating apple's authentication system, drastic changes to onboarding flows and user data access and you would want those feed back reaching you in your early days of building your app.
+
+While building bunkr was a ton of fun and we learned a lot, it can be painful at times when app store reviews take longer than expected, when taking out time for bunkr with a full time job seems impossible and the involuntary procrastination which constantly gives you the anxiety that this project might also not see the light of day.
+
+So, what's next? Currently bunkr is available for use in the city of Bangalore and the idea would be to make bunkr the go to app to find virtue aligned flatmates, whether you're a working professional, college student, startup founder or anyone in between. Feel free to contact me for any feature requests or bug fixes.

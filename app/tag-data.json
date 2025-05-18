@@ -2,7 +2,9 @@
   "convex": 1,
   "react": 1,
   "tailwindcss": 2,
-  "typescript": 1,
+  "typescript": 2,
   "css": 1,
-  "responsive": 1
+  "responsive": 1,
+  "react-native": 1,
+  "expo": 1
 }
